@@ -1,0 +1,17 @@
+{
+  "name": "Mística Contable",
+  "short_name": "Mística",
+  "description": "Sistema contable móvil para emprendedores",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a1a",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
