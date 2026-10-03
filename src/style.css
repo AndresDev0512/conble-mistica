@@ -1067,7 +1067,42 @@ p {
         border-right: 1px solid var(--color-glass-border);
     }
     
-    .toast-container {
-        max-width: 400px;
-    }
+
+/* Additional action buttons for transaction items */
+.transaction-item__right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-left: auto;
+}
+
+.transaction-item__edit,
+.transaction-item__delete {
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    padding: var(--space-xs);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.transaction-item__edit:hover {
+    color: var(--color-primary);
+    background: var(--color-glass-hover);
+}
+
+.transaction-item__delete:hover {
+    color: var(--color-danger);
+    background: rgba(255, 60, 60, 0.1);
+}
+
+/* Header actions group */
+.app-header__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
 }

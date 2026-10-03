@@ -13,7 +13,12 @@ const firebaseConfig = {
 };
 
 export const isConfigured = () => {
-  return firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('YOUR_');
+  const configured = !!(firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('YOUR_'));
+  console.log(
+    '[Mistica][firebase] isConfigured:', configured,
+    '| projectId:', firebaseConfig.projectId
+  );
+  return configured;
 };
 
 const app = initializeApp(firebaseConfig);
