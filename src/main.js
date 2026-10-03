@@ -1,6 +1,7 @@
 import './style.css';
 import { initRouter, getCurrentRoute, navigate } from './router.js';
-import { subscribeToTransactions, getStats, addTransaction, updateTransaction, deleteTransaction } from './store.js';
+import { subscribeToTransactions, getStats, addTransaction, updateTransaction, deleteTransaction, bulkImport } from './store.js';
+
 import { renderHeader } from './components/header.js';
 import { renderBottomNav } from './components/bottom-nav.js';
 import { renderDashboard } from './components/dashboard.js';
@@ -78,88 +79,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    /**
-     * Normalizes any date format from an exported JSON to an ISO date string (YYYY-MM-DD).
-     * Handles:
-     *  - Firestore Timestamp object: { seconds, nanoseconds } or { type: "firestore/timestamp/1.0", seconds, nanoseconds }
-     *  - ISO string: "2026-09-29T..."
-     *  - Plain date string: "2026-09-29"
-     */
-    function normalizeDateToISO(rawDate) {
-      if (!rawDate) return new Date().toISOString().slice(0, 10);
-
-      // Firestore Timestamp object (exported via JSON.stringify)
-      if (typeof rawDate === 'object' && rawDate.seconds !== undefined) {
-        const ms = rawDate.seconds * 1000 + Math.floor((rawDate.nanoseconds || 0) / 1e6);
-        const d = new Date(ms);
-        return d.toISOString().slice(0, 10);
-      }
-
-      // Already a string
-      if (typeof rawDate === 'string') {
-        const d = new Date(rawDate);
-        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-      }
-
-      // Numeric timestamp (ms)
-      if (typeof rawDate === 'number') {
-        return new Date(rawDate).toISOString().slice(0, 10);
-      }
-
-      return new Date().toISOString().slice(0, 10);
-    }
+    console.log(`[Mistica][UI] Archivo seleccionado para importar: "${file.name}" (${file.size} bytes, tipo: ${file.type || 'desconocido'})`);
 
     try {
       showToast('Importando datos...', 'info');
       const imported = await importFromJSON(file);
+      console.log(`[Mistica][UI] Archivo JSON leído exitosamente. Registros encontrados:`, imported.length);
 
       if (!Array.isArray(imported) || imported.length === 0) {
-        showToast('El archivo no contiene movimientos válidos', 'error');
+        console.warn(`[Mistica][UI] El contenido del JSON no es un arreglo válido o está vacío.`);
+        showToast('El archivo no contiene un arreglo de movimientos válido', 'error');
         return;
       }
 
-      // Prevent duplicates: filter out IDs already present
-      const existingIds = new Set(allTransactions.map(t => t.id));
-      const newItems = imported.filter(t => t.id && !existingIds.has(t.id));
-      const duplicates = imported.length - newItems.length;
+      const { imported: savedCount, skipped: skippedCount } = bulkImport(imported);
 
-      if (newItems.length === 0) {
-        showToast(`Todos los registros ya existen (${duplicates} duplicados omitidos)`, 'info');
+      if (savedCount === 0 && skippedCount > 0) {
+        showToast(`Los ${skippedCount} movimientos ya existían en la app`, 'info');
         return;
       }
 
-      // Save each new item, normalizing the date first
-      let saved = 0;
-      let errors = 0;
-      for (const item of newItems) {
-        try {
-          const normalizedDate = normalizeDateToISO(item.date);
-          await addTransaction({
-            person: item.person,
-            type: item.type,
-            amount: Number(item.amount),
-            description: item.description || '',
-            date: normalizedDate
-          });
-          saved++;
-        } catch (err) {
-          errors++;
-          console.warn('[Mistica][import] Error al importar registro:', item.id, err.message);
-        }
-      }
-
-      if (saved === 0) {
-        showToast('No se pudo importar ningún registro. Revisa el archivo.', 'error');
+      if (savedCount === 0) {
+        showToast('No se importó ningún movimiento', 'error');
         return;
       }
 
-      const parts = [];
-      if (saved > 0) parts.push(`${saved} importado(s) ✨`);
-      if (duplicates > 0) parts.push(`${duplicates} duplicado(s) omitido(s)`);
-      if (errors > 0) parts.push(`${errors} con error`);
-      showToast(parts.join(' · '), saved > 0 ? 'success' : 'error');
+      const msg = skippedCount > 0
+        ? `${savedCount} importado(s) ✨ (${skippedCount} ya existían)`
+        : `${savedCount} movimiento(s) importado(s) ✨`;
+
+      showToast(msg, 'success');
     } catch (err) {
-      console.error('[Mistica][import] Error al procesar el archivo:', err);
+      console.error('[Mistica][UI] Error al procesar el archivo:', err);
       showToast('Error al leer el archivo JSON', 'error');
     }
   });

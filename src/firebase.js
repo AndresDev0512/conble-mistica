@@ -1,7 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 
-// IMPORTANT: The user needs to replace these values with their own Firebase config
 const firebaseConfig = {
   apiKey: "AIzaSyDJKPez9yOcoDGdjIGJ8LTJPlOfUl7VPEE",
   authDomain: "mistica-contable.firebaseapp.com",
@@ -13,12 +12,7 @@ const firebaseConfig = {
 };
 
 export const isConfigured = () => {
-  const configured = !!(firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('YOUR_'));
-  console.log(
-    '[Mistica][firebase] isConfigured:', configured,
-    '| projectId:', firebaseConfig.projectId
-  );
-  return configured;
+  return !!(firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith('YOUR_'));
 };
 
 const app = initializeApp(firebaseConfig);

@@ -3,34 +3,70 @@ import { db, isConfigured } from './firebase.js';
 
 const LOCAL_STORAGE_KEY = 'mistica_transactions';
 let localListeners = [];
+let firestoreDisabled = false;
+
+/**
+ * Safely parses any date representation (ISO string, Timestamp, YYYY-MM-DD, number)
+ * into a valid JavaScript Date object.
+ */
+export const parseDate = (date) => {
+  if (!date) return new Date();
+  if (typeof date.toDate === 'function') {
+    try { return date.toDate(); } catch (e) { /* fallback */ }
+  }
+  if (typeof date === 'object' && date.seconds !== undefined) {
+    return new Date(date.seconds * 1000);
+  }
+  const parsed = new Date(date);
+  return isNaN(parsed.getTime()) ? new Date() : parsed;
+};
+
+/**
+ * Formats any date into a YYYY-MM-DD string.
+ */
+export const toDateString = (raw) => {
+  const d = parseDate(raw);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * Content fingerprint for duplicate prevention:
+ * person|type|amount|description|date
+ */
+const toContentKey = (t) => {
+  if (!t) return '';
+  const dateStr = toDateString(t.date);
+  return `${t.person}|${t.type}|${Number(t.amount)}|${(t.description || '').trim().toLowerCase()}|${dateStr}`;
+};
 
 const getLocalTransactions = () => {
   try {
     const data = localStorage.getItem(LOCAL_STORAGE_KEY);
     const transactions = data ? JSON.parse(data) : [];
-    return transactions;
+    return Array.isArray(transactions) ? transactions : [];
   } catch (err) {
-    console.error('[Mistica][localStorage] Error al leer de localStorage:', err);
+    console.error('[Mistica][localStorage] Error al leer localStorage:', err);
     return [];
   }
 };
 
-const saveLocalTransactions = (transactions) => {
+const saveLocalTransactionsSilently = (transactions) => {
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(transactions));
-    notifyLocalListeners();
   } catch (err) {
-    console.error('[Mistica][localStorage] Error al escribir en localStorage:', err);
+    console.error('[Mistica][localStorage] Error al guardar en localStorage:', err);
   }
+};
+
+const saveLocalTransactions = (transactions) => {
+  saveLocalTransactionsSilently(transactions);
+  notifyLocalListeners();
 };
 
 const notifyLocalListeners = () => {
   const transactions = getLocalTransactions();
-  transactions.sort((a, b) => {
-    const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-    const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
-    return dateB.getTime() - dateA.getTime();
-  });
+  transactions.sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime());
+  
   localListeners.forEach(cb => {
     try {
       cb(transactions);
@@ -40,129 +76,139 @@ const notifyLocalListeners = () => {
   });
 };
 
-const newTraceId = () => Math.random().toString(36).slice(2, 8);
+const shouldTryFirestore = () => {
+  return isConfigured() && !firestoreDisabled;
+};
 
 /**
- * Syncs unsynced local transactions to Firestore if available.
+ * Bulk import helper for JSON files.
+ * Writes directly to localStorage in a single operation.
  */
-const syncUnsyncedLocalTransactions = async () => {
-  if (!isConfigured()) return;
-  const localTransactions = getLocalTransactions();
-  const unsynced = localTransactions.filter(t => t.syncedToFirestore === false);
+export const bulkImport = (items) => {
+  console.group(`[Mistica][bulkImport] Importando ${items.length} registro(s)...`);
 
-  if (unsynced.length === 0) return;
-
-  console.log(`[Mistica][sync] Intentando sincronizar ${unsynced.length} registro(s) pendiente(s) a Firestore...`);
-  
-  for (const item of unsynced) {
-    try {
-      const firestoreData = {
-        person: item.person,
-        type: item.type,
-        amount: Number(item.amount),
-        description: item.description || '',
-        date: Timestamp.fromDate(new Date(item.date)),
-        createdAt: Timestamp.now()
-      };
-      const ref = await addDoc(collection(db, 'transactions'), firestoreData);
-      console.log(`[Mistica][sync] Registro ${item.id} sincronizado exitosamente con ID en Firestore: ${ref.id}`);
-      
-      // Update local item
-      item.id = ref.id;
-      item.syncedToFirestore = true;
-    } catch (err) {
-      console.warn(`[Mistica][sync] Error al sincronizar registro ${item.id} a Firestore:`, err.message);
-      break; // Pause sync loop if network/permission fails
-    }
+  if (!Array.isArray(items) || items.length === 0) {
+    console.warn(`⚠️ El arreglo a importar está vacío o no es válido.`);
+    console.groupEnd();
+    return { imported: 0, skipped: 0 };
   }
 
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localTransactions));
+  const existing = getLocalTransactions();
+  const existingKeys = new Set(existing.map(toContentKey));
+
+  let imported = 0;
+  let skipped = 0;
+  const toAdd = [];
+
+  items.forEach((item, idx) => {
+    const key = toContentKey(item);
+
+    if (existingKeys.has(key)) {
+      skipped++;
+    } else {
+      const dateStr = toDateString(item.date);
+      const newRecord = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8) + imported,
+        person: item.person || 'esmeralda',
+        type: item.type || 'inversion',
+        amount: Number(item.amount) || 0,
+        description: (item.description || '').trim(),
+        date: dateStr,
+        createdAt: new Date().toISOString(),
+        syncedToFirestore: false
+      };
+      toAdd.push(newRecord);
+      existingKeys.add(key);
+      imported++;
+    }
+  });
+
+  console.log(`📊 Resultado -> Nuevos: ${toAdd.length} | Omitidos: ${skipped}`);
+
+  if (toAdd.length > 0) {
+    saveLocalTransactions([...existing, ...toAdd]);
+  }
+
+  console.groupEnd();
+  return { imported, skipped };
 };
 
 export const addTransaction = async (data) => {
   const { person, type, amount, description, date } = data;
-  const trace = newTraceId();
-  const useFirestore = isConfigured();
-
   const numericAmount = Number(amount);
+
   if (isNaN(numericAmount) || numericAmount <= 0) {
     throw new Error('Monto inválido');
   }
 
-  console.log(`[${trace}][addTransaction] Guardando movimiento:`, data);
+  const dateISO = toDateString(date);
 
-  // Create local record object
   const localRecord = {
-    id: Date.now().toString() + Math.random().toString(36).substring(7),
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
     person,
     type,
     amount: numericAmount,
     description: description ? description.trim() : '',
-    date: new Date(date).toISOString(),
+    date: dateISO,
     createdAt: new Date().toISOString(),
     syncedToFirestore: false
   };
 
-  if (useFirestore) {
-    const firestoreData = {
-      person,
-      type,
-      amount: numericAmount,
-      description: description ? description.trim() : '',
-      date: Timestamp.fromDate(new Date(date)),
-      createdAt: Timestamp.now()
-    };
-
-    try {
-      const ref = await addDoc(collection(db, 'transactions'), firestoreData);
-      console.log(`[${trace}][addTransaction] Guardado exitosamente en Firestore con id:`, ref.id);
-      
-      localRecord.id = ref.id;
-      localRecord.syncedToFirestore = true;
-      
-      // Always store locally as cache/backup
-      const currentLocal = getLocalTransactions();
-      const existingIdx = currentLocal.findIndex(t => t.id === ref.id);
-      if (existingIdx >= 0) {
-        currentLocal[existingIdx] = localRecord;
-      } else {
-        currentLocal.push(localRecord);
-      }
-      saveLocalTransactions(currentLocal);
-
-      return { id: ref.id };
-    } catch (error) {
-      console.warn(
-        `[${trace}][addTransaction] Error en Firestore (${error.code || error.message}). ` +
-        `Guardando localmente en localStorage como respaldo seguro.`
-      );
-      // Fallback to local storage so data is NEVER lost!
-      const currentLocal = getLocalTransactions();
-      currentLocal.push(localRecord);
-      saveLocalTransactions(currentLocal);
-      return { id: localRecord.id, offlineFallback: true };
-    }
-  } else {
-    const currentLocal = getLocalTransactions();
+  // 1. Write to localStorage immediately
+  const currentLocal = getLocalTransactions();
+  
+  // Deduplicate against local records before pushing
+  const recordKey = toContentKey(localRecord);
+  const existsLocally = currentLocal.some(lt => toContentKey(lt) === recordKey);
+  if (!existsLocally) {
     currentLocal.push(localRecord);
     saveLocalTransactions(currentLocal);
-    console.log(`[${trace}][addTransaction] Guardado en localStorage con id:`, localRecord.id);
-    return { id: localRecord.id };
   }
+
+  // 2. Async attempt to write to Firestore (if available)
+  if (shouldTryFirestore()) {
+    try {
+      const firestoreData = {
+        person,
+        type,
+        amount: numericAmount,
+        description: description ? description.trim() : '',
+        date: Timestamp.fromDate(parseDate(date)),
+        createdAt: Timestamp.now()
+      };
+      const ref = await addDoc(collection(db, 'transactions'), firestoreData);
+      
+      // Update local record silently with Firestore ID
+      const updated = getLocalTransactions();
+      const idx = updated.findIndex(t => t.id === localRecord.id);
+      if (idx !== -1) {
+        updated[idx].id = ref.id;
+        updated[idx].syncedToFirestore = true;
+        saveLocalTransactionsSilently(updated);
+      }
+      return { id: ref.id };
+    } catch (error) {
+      if (error.code === 'permission-denied') {
+        firestoreDisabled = true;
+        console.warn('[Mistica] Reglas de Firebase denegadas. Continuando 100% en modo local.');
+      }
+    }
+  }
+
+  return { id: localRecord.id };
 };
 
 export const updateTransaction = async (id, data) => {
   const { person, type, amount, description, date } = data;
-  const trace = newTraceId();
   const numericAmount = Number(amount);
 
   if (isNaN(numericAmount) || numericAmount <= 0) {
     throw new Error('Monto inválido');
   }
 
-  console.log(`[${trace}][updateTransaction] Actualizando registro ${id}:`, data);
+  const dateISO = toDateString(date);
 
-  // Update in localStorage first
+  // Update in localStorage immediately
   let localTransactions = getLocalTransactions();
   const idx = localTransactions.findIndex(t => t.id === id);
   if (idx !== -1) {
@@ -172,67 +218,59 @@ export const updateTransaction = async (id, data) => {
       type,
       amount: numericAmount,
       description: description ? description.trim() : '',
-      date: new Date(date).toISOString(),
-      syncedToFirestore: isConfigured() ? localTransactions[idx].syncedToFirestore : false
+      date: dateISO
     };
     saveLocalTransactions(localTransactions);
   }
 
-  // Update in Firestore if configured
-  if (isConfigured()) {
+  // Update in Firestore asynchronously if available
+  if (shouldTryFirestore()) {
     try {
       const firestoreData = {
         person,
         type,
         amount: numericAmount,
         description: description ? description.trim() : '',
-        date: Timestamp.fromDate(new Date(date))
+        date: Timestamp.fromDate(parseDate(date))
       };
       await updateDoc(doc(db, 'transactions', id), firestoreData);
-      console.log(`[${trace}][updateTransaction] Registro actualizado en Firestore:`, id);
     } catch (error) {
-      console.warn(`[${trace}][updateTransaction] Error al actualizar en Firestore (${error.message}). Se conserva cambio en localStorage.`);
+      if (error.code === 'permission-denied') {
+        firestoreDisabled = true;
+      }
     }
   }
 };
 
 export const deleteTransaction = async (id) => {
-  const trace = newTraceId();
-  console.log(`[${trace}][deleteTransaction] Eliminando id:`, id);
-
-  // Delete from localStorage
+  // Delete from localStorage immediately
   let transactions = getLocalTransactions();
   transactions = transactions.filter(t => t.id !== id);
   saveLocalTransactions(transactions);
 
-  // Try deleting from Firestore if configured
-  if (isConfigured()) {
+  // Try deleting from Firestore if available
+  if (shouldTryFirestore()) {
     try {
       await deleteDoc(doc(db, 'transactions', id));
-      console.log(`[${trace}][deleteTransaction] Eliminado de Firestore:`, id);
     } catch (error) {
-      console.warn(`[${trace}][deleteTransaction] Error al eliminar de Firestore (${error.message}). Eliminado localmente.`);
+      if (error.code === 'permission-denied') {
+        firestoreDisabled = true;
+      }
     }
   }
 };
 
 export const subscribeToTransactions = (callback) => {
-  // Always register callback for local updates
   if (!localListeners.includes(callback)) {
     localListeners.push(callback);
   }
 
-  // Deliver initial state from localStorage immediately
+  // Emit initial local state immediately
   const initialLocal = getLocalTransactions();
-  initialLocal.sort((a, b) => {
-    const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-    const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
-    return dateB.getTime() - dateA.getTime();
-  });
+  initialLocal.sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime());
   callback(initialLocal);
 
-  if (isConfigured()) {
-    console.log('[Mistica][subscribe] Conectando listener en tiempo real con Firestore');
+  if (shouldTryFirestore()) {
     try {
       const q = query(collection(db, 'transactions'), orderBy('date', 'desc'));
       const unsubscribeFirestore = onSnapshot(q, (snapshot) => {
@@ -242,47 +280,27 @@ export const subscribeToTransactions = (callback) => {
           syncedToFirestore: true
         }));
 
-        // Merge Firestore docs with any unsynced local docs
+        const firestoreContentKeys = new Set(firestoreDocs.map(toContentKey));
+
         const currentLocal = getLocalTransactions();
+        // Keep unsynced local items ONLY if their content fingerprint is NOT already in Firestore
         const unsyncedLocal = currentLocal.filter(lt => 
           lt.syncedToFirestore === false && 
-          !firestoreDocs.some(fd => fd.id === lt.id)
+          !firestoreDocs.some(fd => fd.id === lt.id) &&
+          !firestoreContentKeys.has(toContentKey(lt))
         );
 
         const merged = [...firestoreDocs, ...unsyncedLocal];
-        merged.sort((a, b) => {
-          const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-          const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
-          return dateB.getTime() - dateA.getTime();
-        });
+        merged.sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime());
 
-        // Update local storage cache
-        try {
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(merged));
-        } catch (e) {
-          console.error('[Mistica][subscribe] Error guardando caché local:', e);
-        }
-
+        saveLocalTransactionsSilently(merged);
         callback(merged);
-
-        // Attempt background sync of local unsynced items
-        syncUnsyncedLocalTransactions().catch(err => {
-          console.warn('[Mistica][subscribe] Background sync notification:', err);
-        });
       }, (error) => {
-        console.warn(
-          '[Mistica][subscribe] Firestore no disponible o bloqueado por reglas de seguridad:',
-          error.code, error.message,
-          '-- Utilizando almacenamiento local persistente.'
-        );
-        // Fallback: Notify callback using local data
-        const localData = getLocalTransactions();
-        localData.sort((a, b) => {
-          const dateA = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-          const dateB = b.date?.toDate ? b.date.toDate() : new Date(b.date);
-          return dateB.getTime() - dateA.getTime();
-        });
-        callback(localData);
+        if (error.code === 'permission-denied') {
+          firestoreDisabled = true;
+          console.warn('[Mistica] Firestore denegado. Cambiando a modo local (localStorage).');
+        }
+        callback(getLocalTransactions());
       });
 
       return () => {
@@ -290,13 +308,12 @@ export const subscribeToTransactions = (callback) => {
         localListeners = localListeners.filter(cb => cb !== callback);
       };
     } catch (error) {
-      console.warn('[Mistica][subscribe] Fallo inicial de suscripción a Firestore:', error);
+      firestoreDisabled = true;
       return () => {
         localListeners = localListeners.filter(cb => cb !== callback);
       };
     }
   } else {
-    console.warn('[Mistica][subscribe] Firebase no configurado. Operando 100% en modo local (localStorage).');
     return () => {
       localListeners = localListeners.filter(cb => cb !== callback);
     };
@@ -312,12 +329,15 @@ export const getStats = (transactions = []) => {
     combined: initStats()
   };
 
+  if (!Array.isArray(transactions)) return stats;
+
   transactions.forEach(t => {
+    if (!t) return;
     const person = t.person;
     if (!stats[person]) return;
 
     const amount = Number(t.amount);
-    if (isNaN(amount)) return;
+    if (isNaN(amount) || amount <= 0) return;
     
     stats[person].transactionCount++;
     stats.combined.transactionCount++;
@@ -345,5 +365,6 @@ export const getStats = (transactions = []) => {
 };
 
 export const getTransactionsByPerson = (transactions, person) => {
-  return transactions.filter(t => t.person === person);
+  if (!Array.isArray(transactions)) return [];
+  return transactions.filter(t => t && t.person === person);
 };
