@@ -78,6 +78,37 @@ document.addEventListener('DOMContentLoaded', () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    /**
+     * Normalizes any date format from an exported JSON to an ISO date string (YYYY-MM-DD).
+     * Handles:
+     *  - Firestore Timestamp object: { seconds, nanoseconds } or { type: "firestore/timestamp/1.0", seconds, nanoseconds }
+     *  - ISO string: "2026-09-29T..."
+     *  - Plain date string: "2026-09-29"
+     */
+    function normalizeDateToISO(rawDate) {
+      if (!rawDate) return new Date().toISOString().slice(0, 10);
+
+      // Firestore Timestamp object (exported via JSON.stringify)
+      if (typeof rawDate === 'object' && rawDate.seconds !== undefined) {
+        const ms = rawDate.seconds * 1000 + Math.floor((rawDate.nanoseconds || 0) / 1e6);
+        const d = new Date(ms);
+        return d.toISOString().slice(0, 10);
+      }
+
+      // Already a string
+      if (typeof rawDate === 'string') {
+        const d = new Date(rawDate);
+        if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+      }
+
+      // Numeric timestamp (ms)
+      if (typeof rawDate === 'number') {
+        return new Date(rawDate).toISOString().slice(0, 10);
+      }
+
+      return new Date().toISOString().slice(0, 10);
+    }
+
     try {
       showToast('Importando datos...', 'info');
       const imported = await importFromJSON(file);
@@ -97,27 +128,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Save each new item
+      // Save each new item, normalizing the date first
       let saved = 0;
+      let errors = 0;
       for (const item of newItems) {
         try {
+          const normalizedDate = normalizeDateToISO(item.date);
           await addTransaction({
             person: item.person,
             type: item.type,
-            amount: item.amount,
+            amount: Number(item.amount),
             description: item.description || '',
-            date: item.date
+            date: normalizedDate
           });
           saved++;
         } catch (err) {
+          errors++;
           console.warn('[Mistica][import] Error al importar registro:', item.id, err.message);
         }
       }
 
-      const msg = duplicates > 0
-        ? `${saved} movimiento(s) importado(s) · ${duplicates} duplicado(s) omitido(s)`
-        : `${saved} movimiento(s) importado(s) ✨`;
-      showToast(msg, 'success');
+      if (saved === 0) {
+        showToast('No se pudo importar ningún registro. Revisa el archivo.', 'error');
+        return;
+      }
+
+      const parts = [];
+      if (saved > 0) parts.push(`${saved} importado(s) ✨`);
+      if (duplicates > 0) parts.push(`${duplicates} duplicado(s) omitido(s)`);
+      if (errors > 0) parts.push(`${errors} con error`);
+      showToast(parts.join(' · '), saved > 0 ? 'success' : 'error');
     } catch (err) {
       console.error('[Mistica][import] Error al procesar el archivo:', err);
       showToast('Error al leer el archivo JSON', 'error');
