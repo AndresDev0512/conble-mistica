@@ -19,6 +19,12 @@ export function renderBottomNav(activeRoute) {
         </span>
         <span class="bottom-nav__label">Esmeralda</span>
       </button>
+      <button class="bottom-nav__fab" data-action="open-form" aria-label="Nuevo registro">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
       <button class="bottom-nav__item ${activeRoute === 'andres' ? 'bottom-nav__item--active' : ''}" data-action="navigate" data-route="#/andres">
         <span class="bottom-nav__icon">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

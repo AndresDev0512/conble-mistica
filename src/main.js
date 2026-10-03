@@ -1,20 +1,42 @@
 import './style.css';
 import { initRouter, getCurrentRoute, navigate } from './router.js';
-import { subscribeToTransactions, getStats, addTransaction, updateTransaction, deleteTransaction, bulkImport } from './store.js';
+import { subscribeToTransactions, subscribeToSyncStatus, syncPendingToFirestore, getSyncStatus, getPendingRecords, getCategories, getStats, addTransaction, updateTransaction, deleteTransaction, bulkImport } from './store.js';
+import { isAppCheckActive } from './firebase.js';
 
 import { renderHeader } from './components/header.js';
 import { renderBottomNav } from './components/bottom-nav.js';
 import { renderDashboard } from './components/dashboard.js';
 import { renderIndividual } from './components/individual.js';
-import { renderFab } from './components/fab.js';
 import { renderBottomSheet, openBottomSheet, closeBottomSheet } from './components/bottom-sheet.js';
-import { renderTransactionForm, getFormData, resetForm, populateForm } from './components/transaction-form.js';
+import { renderTransactionForm, getFormData, resetForm, populateForm, refreshCategorySuggestions } from './components/transaction-form.js';
 import { renderToastContainer, showToast } from './components/toast.js';
 import { exportToJSON, importFromJSON } from './utils/export.js';
+import { formatAmountInput } from './utils/formatters.js';
 
 
 let allTransactions = [];
 let currentStats = {};
+let activeTypeFilter = 'all';
+let activeCategoryFilter = 'all';
+
+/**
+ * Aplica los dos filtros a la vez. Se centraliza porque antes el filtro de tipo
+ * manipulaba el display directamente y pisaba el de categoría.
+ */
+function applyFilters() {
+  document.querySelectorAll('.transaction-item').forEach(item => {
+    const type = item.dataset.type;
+    const category = item.dataset.category || '';
+
+    const typeMatches = activeTypeFilter === 'all' || type === activeTypeFilter;
+    const categoryMatches = activeCategoryFilter === 'all'
+      || (activeCategoryFilter === 'sin-categoria'
+        ? category === ''
+        : category === activeCategoryFilter);
+
+    item.style.display = (typeMatches && categoryMatches) ? '' : 'none';
+  });
+}
 
 function getActivePerson() {
   const { route, person } = getCurrentRoute();
@@ -47,6 +69,19 @@ export function refreshCurrentView() {
   renderPage(getCurrentRoute());
 }
 
+/**
+ * Refleja el estado de la nube en el punto del header. Antes la app informaba
+ * "guardado" aunque el movimiento se hubiera quedado solo en el dispositivo.
+ */
+function renderSyncStatus(status) {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+
+  el.dataset.state = status.state;
+  el.title = status.message;
+  el.setAttribute('aria-label', status.message);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const app = document.getElementById('app');
   if (!app) return;
@@ -56,7 +91,6 @@ document.addEventListener('DOMContentLoaded', () => {
     <div class="app-container">
       ${renderHeader()}
       <main id="app-content" class="page-content"></main>
-      ${renderFab()}
       ${renderBottomNav('dashboard')}
       ${renderBottomSheet(renderTransactionForm())}
       ${renderToastContainer()}
@@ -66,12 +100,53 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize router
   initRouter(renderPage);
 
+  // App Check debe inicializarse antes de la primera peticion a Firestore
+  if (isAppCheckActive()) {
+    console.log('[Mistica][firebase] App Check activo (reCAPTCHA v3).');
+  }
+
   // Subscribe to transactions (real-time with automatic persistent localStorage fallback)
   subscribeToTransactions((transactions) => {
     allTransactions = transactions;
     currentStats = getStats(transactions);
+    refreshCategorySuggestions(getCategories(transactions));
     refreshCurrentView();
+    applyFilters();
   });
+
+  // Indicador de estado de sincronizacion
+  subscribeToSyncStatus(renderSyncStatus);
+
+  // Rescatar lo que quedo pendiente en este dispositivo (arranque)
+  syncPendingToFirestore();
+
+  // Al recuperar conexion, reintentar la subida de lo pendiente
+  window.addEventListener('online', () => {
+    showToast('Conexion recuperada, sincronizando', 'info');
+    syncPendingToFirestore();
+  });
+
+  window.addEventListener('offline', () => {
+    showToast('Sin conexion: los cambios se guardan en este dispositivo', 'info');
+  });
+
+  // Reintento periodico: cubre el caso en que Firebase estaba bloqueado por
+  // reglas o la red fallaba al momento de guardar.
+  setInterval(() => {
+    if (allTransactions.some(t => !t.syncedToFirestore)) {
+      syncPendingToFirestore();
+    }
+  }, 60000);
+
+  // Diagnostico manual desde la consola del navegador:
+  //   mistica.estado()      -> estado actual de la sincronizacion
+  //   mistica.pendientes()  -> movimientos que faltan por subir
+  //   mistica.sincronizar() -> forzar la subida ahora
+  window.mistica = {
+    estado: getSyncStatus,
+    pendientes: getPendingRecords,
+    sincronizar: syncPendingToFirestore,
+  };
 
   // Handle JSON import file selection
   document.addEventListener('change', async (e) => {
@@ -104,6 +179,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      // Los importados quedan pendientes; se suben de inmediato y el resto
+      // se reintenta solo en los proximos arranques.
+      syncPendingToFirestore();
+
       const msg = skippedCount > 0
         ? `${savedCount} importado(s) ✨ (${skippedCount} ya existían)`
         : `${savedCount} movimiento(s) importado(s) ✨`;
@@ -120,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
   app.addEventListener('click', (e) => {
     const target = e.target;
 
-    // --- FAB: Open creation form ---
+    // --- Boton de nuevo registro (integrado en el bottom nav) ---
     const fab = target.closest('[data-action="open-form"]');
     if (fab) {
       const activePerson = getActivePerson();
@@ -155,7 +234,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const id = deleteAction.dataset.id;
       if (id && confirm('¿Eliminar este movimiento?')) {
         deleteTransaction(id)
-          .then(() => showToast('Movimiento eliminado', 'info'))
+          .then((result) => {
+            if (result?.pendingDelete) {
+              showToast('Eliminado aquí, pendiente de eliminar en la nube', 'info');
+            } else {
+              showToast('Movimiento eliminado', 'info');
+            }
+          })
           .catch(() => showToast('Error al eliminar', 'error'));
       }
       return;
@@ -197,25 +282,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Filter pills ---
     const filterAction = target.closest('[data-action="filter"]');
     if (filterAction) {
-      const filter = filterAction.dataset.filter;
-      const pills = document.querySelectorAll('.filter-pill');
-      pills.forEach(p => p.classList.remove('filter-pill--active'));
+      activeTypeFilter = filterAction.dataset.filter;
+      document.querySelectorAll('[data-action="filter"]').forEach(p => p.classList.remove('filter-pill--active'));
       filterAction.classList.add('filter-pill--active');
-
-      const items = document.querySelectorAll('.transaction-item');
-      items.forEach(item => {
-        if (filter === 'all') {
-          item.style.display = '';
-        } else {
-          const badge = item.querySelector('.transaction-item__badge');
-          if (badge) {
-            const isMatch = badge.classList.contains(`transaction-item__badge--${filter}`);
-            item.style.display = isMatch ? '' : 'none';
-          }
-        }
-      });
+      applyFilters();
       return;
     }
+
+    // --- Filter by category ---
+    const categoryFilterAction = target.closest('[data-action="filter-category"]');
+    if (categoryFilterAction) {
+      activeCategoryFilter = categoryFilterAction.dataset.category;
+      document.querySelectorAll('[data-action="filter-category"]').forEach(p => p.classList.remove('filter-pill--active'));
+      categoryFilterAction.classList.add('filter-pill--active');
+      applyFilters();
+      return;
+    }
+  });
+
+  // Miles en vivo mientras se escribe el monto: 73000 -> 73.000
+  app.addEventListener('input', (e) => {
+    if (e.target.id !== 'amount') return;
+
+    const formatted = formatAmountInput(e.target.value);
+    if (e.target.value === formatted) return;
+
+    e.target.value = formatted;
+    const caret = formatted.length;
+    e.target.setSelectionRange(caret, caret);
   });
 
   // Form submission handling
@@ -232,17 +326,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
+      let result;
       if (data.id) {
-        await updateTransaction(data.id, data);
-        showToast('Movimiento actualizado ✨', 'success');
+        result = await updateTransaction(data.id, data);
       } else {
-        await addTransaction(data);
-        showToast('Movimiento guardado ✨', 'success');
+        result = await addTransaction(data);
       }
+
       // On success: reset form and close modal
       resetForm(getActivePerson());
       closeBottomSheet();
       if (navigator.vibrate) navigator.vibrate(50);
+
+      // Decir la verdad: si no llego a la nube, avisarlo en vez de mentir.
+      if (result?.synced) {
+        showToast('Movimiento guardado y sincronizado', 'success');
+      } else {
+        showToast('Guardado en este dispositivo, pendiente de subir a la nube', 'info');
+      }
     } catch (error) {
       console.error('[Mistica] Error guardando movimiento:', error);
       showToast('Error al guardar el movimiento', 'error');

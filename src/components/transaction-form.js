@@ -1,4 +1,9 @@
-import { getDateInputValue } from '../utils/formatters.js';
+import {
+  getDateInputValue,
+  formatAmountInput,
+  parseAmountInput,
+  escapeHtml
+} from '../utils/formatters.js';
 
 export function renderTransactionForm(defaultPerson = null, editingTransaction = null) {
   const isEditing = !!editingTransaction;
@@ -6,17 +11,18 @@ export function renderTransactionForm(defaultPerson = null, editingTransaction =
   const isEsmeralda = person === 'esmeralda';
   const isAndres = person === 'andres';
   const type = isEditing ? editingTransaction.type : 'inversion';
-  const amount = isEditing ? editingTransaction.amount : '';
+  const amount = isEditing ? formatAmountInput(editingTransaction.amount) : '';
   const description = isEditing ? (editingTransaction.description || '') : '';
-  const dateValue = isEditing && editingTransaction.date 
-    ? getDateInputValue(editingTransaction.date) 
+  const category = isEditing ? (editingTransaction.category || '') : '';
+  const dateValue = isEditing && editingTransaction.date
+    ? getDateInputValue(editingTransaction.date)
     : getDateInputValue();
 
   return `
 <form id="transaction-form" class="transaction-form">
-  <input type="hidden" id="editing-id" value="${isEditing ? editingTransaction.id : ''}">
+  <input type="hidden" id="editing-id" value="${isEditing ? escapeHtml(editingTransaction.id) : ''}">
   <h3 class="transaction-form__title" id="form-title">${isEditing ? 'Editar Movimiento' : 'Nuevo Movimiento'}</h3>
-  
+
   <!-- Type Toggle -->
   <div class="form-group">
     <label class="form-label">Tipo</label>
@@ -35,13 +41,22 @@ export function renderTransactionForm(defaultPerson = null, editingTransaction =
   <!-- Amount -->
   <div class="form-group">
     <label class="form-label" for="amount">Monto ($)</label>
-    <input type="text" inputmode="decimal" id="amount" name="amount" class="form-input form-input--amount" placeholder="0" value="${amount}" required autocomplete="off">
+    <input type="text" inputmode="numeric" id="amount" name="amount" class="form-input form-input--amount" placeholder="0" value="${escapeHtml(amount)}" required autocomplete="off">
+  </div>
+
+  <!-- Category -->
+  <div class="form-group">
+    <label class="form-label" for="category">Categoría</label>
+    <input type="text" id="category" name="category" class="form-input" list="category-options"
+           placeholder="Ropa, Comida, Transporte..." value="${escapeHtml(category)}" autocomplete="off">
+    <datalist id="category-options"></datalist>
+    <span class="form-hint">Elige una sugerencia o escribe la tuya</span>
   </div>
 
   <!-- Description -->
   <div class="form-group">
     <label class="form-label" for="description">Descripción</label>
-    <input type="text" id="description" name="description" class="form-input" placeholder="¿En qué se invirtió/recuperó?" value="${description}" autocomplete="off">
+    <input type="text" id="description" name="description" class="form-input" placeholder="¿En qué se invirtió/recuperó?" value="${escapeHtml(description)}" autocomplete="off">
   </div>
 
   <!-- Date -->
@@ -73,6 +88,22 @@ export function renderTransactionForm(defaultPerson = null, editingTransaction =
   `;
 }
 
+/**
+ * Llena el datalist con las categorias ya usadas. El formulario se renderiza
+ * una sola vez al arrancar, asi que esto se refresca cada vez que cambian los
+ * movimientos.
+ *
+ * @param {string[]} categories
+ */
+export function refreshCategorySuggestions(categories = []) {
+  const datalist = document.getElementById('category-options');
+  if (!datalist) return;
+
+  datalist.innerHTML = categories
+    .map(category => `<option value="${escapeHtml(category)}"></option>`)
+    .join('');
+}
+
 export function getFormData() {
   const form = document.getElementById('transaction-form');
   if (!form) return null;
@@ -81,12 +112,13 @@ export function getFormData() {
   const editingId = editingIdInput ? editingIdInput.value.trim() : null;
 
   const type = form.querySelector('input[name="type"]:checked')?.value;
-  const amountStr = form.querySelector('#amount').value;
   const description = form.querySelector('#description').value;
+  const category = form.querySelector('#category')?.value || '';
   const date = form.querySelector('#date').value;
   const person = form.querySelector('input[name="person"]:checked')?.value;
 
-  const amount = parseFloat(amountStr.replace(/[^0-9.]/g, ''));
+  // Tolera el punto de miles que se muestra mientras se escribe: '73.000' -> 73000
+  const amount = parseAmountInput(form.querySelector('#amount').value);
 
   if (!amount || amount <= 0 || !person || !type || !date) {
     return null;
@@ -97,6 +129,7 @@ export function getFormData() {
     type,
     amount,
     description: description.trim(),
+    category: category.trim(),
     date,
     person
   };
@@ -119,7 +152,10 @@ export function populateForm(transaction) {
   if (typeRadio) typeRadio.checked = true;
 
   const amountInput = form.querySelector('#amount');
-  if (amountInput) amountInput.value = transaction.amount || '';
+  if (amountInput) amountInput.value = formatAmountInput(transaction.amount);
+
+  const categoryInput = form.querySelector('#category');
+  if (categoryInput) categoryInput.value = transaction.category || '';
 
   const descInput = form.querySelector('#description');
   if (descInput) descInput.value = transaction.description || '';
@@ -151,6 +187,9 @@ export function resetForm(defaultPerson = null) {
 
   const amount = form.querySelector('#amount');
   if (amount) amount.value = '';
+
+  const category = form.querySelector('#category');
+  if (category) category.value = '';
 
   const description = form.querySelector('#description');
   if (description) description.value = '';

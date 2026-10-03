@@ -93,13 +93,14 @@ ul, ol {
     --font-heading: 'Outfit', sans-serif;
     --font-body: 'Inter', sans-serif;
     
-    /* Spacing */
-    --space-xs: 4px;
-    --space-sm: 8px;
-    --space-md: 16px;
-    --space-lg: 24px;
-    --space-xl: 32px;
-    --space-xxl: 48px;
+    /* Spacing - escala compacta. Antes los bloques respiraban demasiado y la
+       pagina se veía aireada y poco profesional. */
+    --space-xs: 3px;
+    --space-sm: 6px;
+    --space-md: 12px;
+    --space-lg: 18px;
+    --space-xl: 24px;
+    --space-xxl: 36px;
     
     /* Radii */
     --radius-sm: 8px;
@@ -183,8 +184,8 @@ p {
 .page-content {
     flex: 1;
     padding: var(--space-md);
-    /* Extra padding for bottom nav space */
-    padding-bottom: calc(80px + var(--safe-bottom) + var(--space-xl));
+    /* 64px del bottom nav + 20px para el boton que se apoya en su borde */
+    padding-bottom: calc(84px + var(--safe-bottom));
 }
 
 .page-header {
@@ -248,35 +249,46 @@ p {
     padding: var(--space-lg);
 }
 
+.stats-card__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xs);
+}
+
 .stats-card__icon {
-    width: 32px;
-    height: 32px;
+    width: 26px;
+    height: 26px;
     border-radius: var(--radius-pill);
     background: var(--color-bg-surface);
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: var(--space-sm);
+    flex-shrink: 0;
+    font-size: 0.8125rem;
     color: var(--color-primary);
 }
 
 .stats-card__label {
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     color: var(--color-text-secondary);
-    margin-bottom: var(--space-xs);
     font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .stats-card__value {
     font-family: var(--font-heading);
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 700;
     color: var(--color-text-primary);
+    letter-spacing: -0.02em;
     margin-bottom: 0;
 }
 
 .stats-card--full .stats-card__value {
-    font-size: 2.25rem;
+    font-size: 1.875rem;
 }
 
 .stats-card--positive {
@@ -365,45 +377,36 @@ p {
 }
 
 /* ==========================================================================
-   7. FAB (Floating Action Button)
+   7. Boton de nuevo registro
+   Va integrado en el bottom nav: centrado y apoyado sobre su borde superior.
+   Asi no flota sobre el contenido ni tapala tab central del nav.
    ========================================================================== */
-.fab-container {
-    position: fixed;
-    bottom: calc(85px + var(--safe-bottom)); /* Lifted higher above the bottom nav */
-    right: 50%;
-    transform: translateX(50%); /* Centered horizontally */
-    z-index: 105; /* Above bottom nav */
-}
-
-.fab {
-    height: 56px;
-    padding: 0 24px; /* Pill shape */
-    border-radius: 28px;
+.bottom-nav__fab {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% - 10px);
+    transform: translateX(-50%);
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
     background: var(--gradient-primary);
-    color: white;
+    color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px; /* Space between icon and text */
-    font-size: 1.1rem;
-    font-weight: 600;
-    font-family: var(--font-heading);
-    box-shadow: 0 8px 25px rgba(170, 80, 255, 0.6); /* Stronger premium shadow */
+    /* El anillo oscuro lo separa del nav y del contenido de atras */
+    box-shadow: 0 6px 18px rgba(170, 80, 255, 0.5), 0 0 0 4px rgba(10, 10, 26, 0.92);
+    z-index: 1;
     transition: transform var(--transition-bounce), box-shadow var(--transition-base);
-    animation: pulse 3s infinite;
 }
 
-.fab:active {
-    transform: scale(0.92);
+.bottom-nav__fab:active {
+    transform: translateX(-50%) scale(0.92);
 }
 
-.fab svg {
-    width: 24px;
-    height: 24px;
-}
-
-.fab-text {
-    display: inline-block;
+.bottom-nav__fab svg {
+    width: 22px;
+    height: 22px;
 }
 
 /* ==========================================================================
@@ -615,11 +618,11 @@ p {
 .transaction-item {
     display: flex;
     align-items: center;
-    padding: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
     background: var(--color-glass-surface);
     border: 1px solid var(--color-glass-border);
     border-radius: var(--radius-lg);
-    min-height: 60px;
+    min-height: 52px;
     position: relative;
     overflow: hidden;
     transition: transform var(--transition-fast), background var(--transition-fast);
@@ -1053,28 +1056,22 @@ p {
         border-right: 1px solid var(--color-glass-border);
     }
     
-    .fab-container {
-        /* Align relative to the container */
-        right: auto;
-        left: 50%;
-        margin-left: 200px; /* 300px half width - some padding */
-    }
-    
     .bottom-sheet__content {
         max-width: 600px;
         margin: 0 auto;
         border-left: 1px solid var(--color-glass-border);
         border-right: 1px solid var(--color-glass-border);
     }
-    
-
-/* Additional action buttons for transaction items */
-.transaction-item__right {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    margin-left: auto;
+    /* El FAB ya queda centrado en el viewport porque el contenedor de 600px
+       tambien lo esta. Antes se compensaba con margin-left: 200px, que lo
+       dejaba torcido en escritorio. */
 }
+
+/* ==========================================================================
+   21. Layout del contenido
+   Estas clases se usaban en el HTML pero no tenian ninguna regla, por eso
+   el dashboard y la vista individual se veian sin jerarquia ni respiracion.
+   ========================================================================== */
 
 .transaction-item__edit,
 .transaction-item__delete {
@@ -1105,4 +1102,433 @@ p {
     display: flex;
     align-items: center;
     gap: var(--space-xs);
+}
+
+/* Sync status indicator */
+.app-header__sync {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    cursor: default;
+}
+
+.app-header__sync-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+    transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.app-header__sync[data-state="syncing"] .app-header__sync-dot {
+    background: var(--color-primary);
+    animation: sync-pulse 1.2s ease-in-out infinite;
+}
+
+.app-header__sync[data-state="synced"] .app-header__sync-dot {
+    background: var(--color-success);
+    box-shadow: 0 0 6px var(--color-success-glow);
+}
+
+.app-header__sync[data-state="pending"] .app-header__sync-dot,
+.app-header__sync[data-state="offline"] .app-header__sync-dot {
+    background: var(--color-warning);
+}
+
+.app-header__sync[data-state="error"] .app-header__sync-dot,
+.app-header__sync[data-state="blocked"] .app-header__sync-dot {
+    background: var(--color-danger);
+    box-shadow: 0 0 6px var(--color-danger-glow);
+}
+
+.app-header__sync[data-state="local"] .app-header__sync-dot {
+    background: var(--color-text-muted);
+}
+
+@keyframes sync-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* ==========================================================================
+   18. Layout del contenido
+   Estas clases se usaban en el HTML pero no tenian ninguna regla, por eso
+   el dashboard y la vista individual se veian sin jerarquia ni respiracion.
+   ========================================================================== */
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    padding-top: calc(var(--space-md) + var(--safe-top));
+    background: var(--color-bg-surface);
+    border-bottom: 1px solid var(--color-glass-border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.app-header__logo {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.app-header__icon {
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.app-header__title {
+    margin: 0;
+    font-family: var(--font-heading);
+    font-size: 1.0625rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dashboard-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-sm);
+    margin-bottom: var(--space-lg);
+}
+
+.section-title {
+    margin: 0 0 var(--space-sm);
+    font-family: var(--font-heading);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+}
+
+.comparison,
+.recent-movements,
+.individual-header,
+.individual-stats,
+.recovery-progress {
+    margin-bottom: var(--space-lg);
+}
+
+/* Stats cards en tres columnas: valores mas pequenos para que no dominen */
+.dashboard-summary .stats-card {
+    padding: var(--space-sm) var(--space-md);
+}
+
+.dashboard-summary .stats-card__value {
+    font-size: 1rem;
+}
+
+/* Vista individual */
+.individual-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+    text-align: center;
+}
+
+.individual-header__avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-heading);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #fff;
+    box-shadow: var(--shadow-sm);
+}
+
+.individual-header__avatar--esmeralda {
+    background: var(--gradient-esmeralda);
+}
+
+.individual-header__avatar--andres {
+    background: var(--gradient-andres);
+}
+
+.individual-header__name {
+    margin: 0;
+    font-family: var(--font-heading);
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.individual-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-sm);
+}
+
+.individual-stats .stats-card {
+    padding: var(--space-sm) var(--space-md);
+}
+
+.individual-stats .stats-card__value {
+    font-size: 1rem;
+}
+
+.recovery-progress {
+    padding: var(--space-md);
+    background: var(--color-glass-surface);
+    border: 1px solid var(--color-glass-border);
+    border-radius: var(--radius-lg);
+}
+
+.recovery-progress__header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: var(--space-sm);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+
+/* Comparativa */
+.person-card__info {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    width: 100%;
+    margin-bottom: var(--space-sm);
+}
+
+.person-card__name {
+    margin-bottom: 0;
+    font-weight: 600;
+    font-size: 0.8125rem;
+}
+
+.person-card__balance {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
+.person-card__bars {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+}
+
+.person-card__bars .progress-bar {
+    flex: 1;
+    height: 6px;
+}
+
+.progress-bar__text {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    min-width: 34px;
+    text-align: right;
+}
+
+.person-card__avatar--esmeralda {
+    background: var(--gradient-esmeralda);
+}
+
+.person-card__avatar--andres {
+    background: var(--gradient-andres);
+}
+
+.person-card__avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 1.125rem;
+    margin-bottom: var(--space-xs);
+}
+
+/* ==========================================================================
+   19. Movimientos
+   ========================================================================== */
+.transaction-item__left {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex: 1;
+    min-width: 0;
+}
+
+.transaction-item__badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-size: 0.8125rem;
+    flex-shrink: 0;
+}
+
+.transaction-item__badge--inversion {
+    background: rgba(255, 60, 60, 0.14);
+    box-shadow: inset 0 0 0 1px var(--color-danger-glow);
+}
+
+.transaction-item__badge--recuperacion {
+    background: rgba(34, 197, 160, 0.14);
+    box-shadow: inset 0 0 0 1px var(--color-success-glow);
+}
+
+.transaction-item__info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.transaction-item__desc {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.transaction-item__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: 0.6875rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.transaction-item__category {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
+    background: var(--color-glass-hover);
+    border: 1px solid var(--color-glass-border);
+    font-size: 0.6875rem;
+    color: var(--color-text-secondary);
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.transaction-item__right {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+    margin-left: var(--space-sm);
+}
+
+.transaction-item__amount {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    white-space: nowrap;
+    letter-spacing: -0.02em;
+}
+
+.transaction-item__edit,
+.transaction-item__delete {
+    width: 30px;
+    height: 30px;
+}
+
+/* ==========================================================================
+   20. Filtros por categoría
+   ========================================================================== */
+.filter-pills {
+    display: flex;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-sm);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-bottom: 2px;
+}
+
+.filter-pills::-webkit-scrollbar {
+    display: none;
+}
+
+.filter-pills--category {
+    align-items: center;
+    margin-top: calc(var(--space-xs) * -1);
+}
+
+.filter-pills__label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+    padding-right: var(--space-xs);
+}
+
+/* Evita que la pagina de fondo scrollee con el modal abierto */
+.no-scroll {
+    overflow: hidden;
+}
+
+/* ==========================================================================
+   21. Formulario
+   ========================================================================== */
+.transaction-form {
+    display: flex;
+    flex-direction: column;
+}
+
+.transaction-form__title {
+    margin: 0 0 var(--space-md);
+    font-family: var(--font-heading);
+    font-size: 1.125rem;
+    font-weight: 600;
+}
+
+.form-group {
+    margin-bottom: var(--space-sm);
+}
+
+.form-hint {
+    display: block;
+    margin-top: var(--space-xs);
+    font-size: 0.6875rem;
+    color: var(--color-text-muted);
+}
+
+.form-input--amount {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 1.25rem;
+    letter-spacing: -0.02em;
+    text-align: right;
+    cursor: text;
+}
+
+.form-input--amount::placeholder {
+    font-weight: 500;
+    color: var(--color-text-muted);
+}
+
+@media (max-width: 380px) {
+    .dashboard-summary,
+    .individual-stats {
+        grid-template-columns: 1fr 1fr;
+    }
 }

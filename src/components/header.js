@@ -6,6 +6,9 @@ export function renderHeader() {
         <h1 class="app-header__title">Mística Contable</h1>
       </div>
       <div class="app-header__actions">
+        <span class="app-header__sync" id="sync-status" data-state="syncing" role="status" aria-live="polite" title="Conectando">
+          <span class="app-header__sync-dot"></span>
+        </span>
         <button class="btn btn--ghost app-header__import" data-action="import" aria-label="Importar datos">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>

@@ -1,5 +1,5 @@
 import { renderStatsCard } from './stats-card.js';
-import { formatCurrency, formatDate } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, slugifyCategory } from '../utils/formatters.js';
 
 export function renderDashboard(stats, transactions) {
   if (!stats || !transactions || transactions.length === 0) {
@@ -98,12 +98,15 @@ export function renderDashboard(stats, transactions) {
           const sign = isRecuperacion ? '+' : '-';
           
           return `
-            <div class="transaction-item">
+            <div class="transaction-item" data-type="${t.type}" data-category="${slugifyCategory(t.category)}">
               <div class="transaction-item__left">
                 <span class="transaction-item__badge transaction-item__badge--${t.type}">${personDetails.emoji}</span>
                 <div class="transaction-item__info">
-                  <span class="transaction-item__desc">${t.description || 'Sin descripción'}</span>
-                  <span class="transaction-item__meta">${personDetails.name} · ${formatDate(t.date)}</span>
+                  <span class="transaction-item__desc">${escapeHtml(t.description || 'Sin descripción')}</span>
+                  <span class="transaction-item__meta">
+                    ${personDetails.name} · ${formatDate(t.date)}
+                    ${t.category ? `<span class="transaction-item__category">${escapeHtml(t.category)}</span>` : ''}
+                  </span>
                 </div>
               </div>
               <div class="transaction-item__right">

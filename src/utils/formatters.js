@@ -22,6 +22,11 @@ const shortDateFormatter = new Intl.DateTimeFormat('es-CO', {
   month: 'short'
 });
 
+// Sin decimales: los montos se manejan en pesos enteros.
+const amountInputFormatter = new Intl.NumberFormat('es-CO', {
+  maximumFractionDigits: 0
+});
+
 /**
  * Normalizes input into a standard Date object.
  * Handles Date objects, Firestore Timestamps (with .toDate()),
@@ -55,6 +60,66 @@ export function formatCurrency(amount) {
     : (Number(amount) || 0);
 
   return currencyFormatter.format(numericAmount);
+}
+
+/**
+ * Formatea lo que el usuario escribe en el campo de monto, para que vea
+ * '73.000' en vez de '73000'. Solo conserva digitos, asi que se puede usar
+ * sobre el valor actual sin volver a formatear.
+ *
+ * @param {string|number} raw
+ * @returns {string} e.g. '73.000'
+ */
+export function formatAmountInput(raw) {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (!digits) return '';
+  return amountInputFormatter.format(Number(digits));
+}
+
+/**
+ * Convierte el texto del campo de monto en un numero. Tolera el punto de miles
+ * que formatAmountInput agrega: '73.000' -> 73000.
+ *
+ * @param {string|number} raw
+ * @returns {number}
+ */
+export function parseAmountInput(raw) {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  return digits ? Number(digits) : 0;
+}
+
+/**
+ * Escapa texto que se va a insertar como HTML. Los datos del usuario (descripcion,
+ * categoria) se renderizan con innerHTML, asi que sin esto un texto con '<' o
+ * '>' romperia el marcado.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+export function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Version segura de una categoria para usarla como valor de atributo
+ * data-*. Quita acentos y espacios: 'Ropa de cama' -> 'ropa-de-cama'.
+ *
+ * @param {*} value
+ * @returns {string}
+ */
+export function slugifyCategory(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 /**

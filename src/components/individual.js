@@ -1,5 +1,5 @@
 import { renderStatsCard } from './stats-card.js';
-import { formatCurrency, formatRelativeDate } from '../utils/formatters.js';
+import { formatCurrency, formatRelativeDate, escapeHtml, slugifyCategory } from '../utils/formatters.js';
 
 export function renderIndividual(personKey, stats, transactions) {
   const isEsmeralda = personKey === 'esmeralda';
@@ -32,12 +32,36 @@ export function renderIndividual(personKey, stats, transactions) {
       </div>
     `;
   } else {
+    // Categorias usadas por esta persona, para las pastillas de filtro.
+    const categories = [...new Set(
+      personTransactions
+        .map(t => (t.category || '').trim())
+        .filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b, 'es'));
+
+    const hasUncategorized = personTransactions.some(t => !(t.category || '').trim());
+
+    const categoryPills = categories.length || hasUncategorized
+      ? `
+        <div class="filter-pills filter-pills--category">
+          <span class="filter-pills__label">Categoría</span>
+          <button class="filter-pill filter-pill--active" data-action="filter-category" data-category="all">Todas</button>
+          ${categories.map(c => `
+            <button class="filter-pill" data-action="filter-category" data-category="${slugifyCategory(c)}">${escapeHtml(c)}</button>
+          `).join('')}
+          ${hasUncategorized ? '<button class="filter-pill" data-action="filter-category" data-category="sin-categoria">Sin categoría</button>' : ''}
+        </div>
+      `
+      : '';
+
     content = `
       <div class="filter-pills">
         <button class="filter-pill filter-pill--active" data-action="filter" data-filter="all">Todos</button>
         <button class="filter-pill" data-action="filter" data-filter="inversion">💰 Inversiones</button>
         <button class="filter-pill" data-action="filter" data-filter="recuperacion">💵 Recuperaciones</button>
       </div>
+
+      ${categoryPills}
 
       <div class="transaction-list">
         ${personTransactions.map((t, index) => {
@@ -46,12 +70,16 @@ export function renderIndividual(personKey, stats, transactions) {
           const sign = isRecuperacion ? '+' : '-';
 
           return `
-            <div class="transaction-item animate-fadeInUp" style="animation-delay: ${index * 50}ms">
+            <div class="transaction-item animate-fadeInUp" style="animation-delay: ${index * 50}ms"
+                 data-type="${t.type}" data-category="${slugifyCategory(t.category)}">
               <div class="transaction-item__left">
                 <span class="transaction-item__badge transaction-item__badge--${t.type}"></span>
                 <div class="transaction-item__info">
-                  <span class="transaction-item__desc">${t.description || 'Sin descripción'}</span>
-                  <span class="transaction-item__meta">${formatRelativeDate(t.date)}</span>
+                  <span class="transaction-item__desc">${escapeHtml(t.description || 'Sin descripción')}</span>
+                  <span class="transaction-item__meta">
+                    ${formatRelativeDate(t.date)}
+                    ${t.category ? `<span class="transaction-item__category">${escapeHtml(t.category)}</span>` : ''}
+                  </span>
                 </div>
               </div>
               <div class="transaction-item__right">
